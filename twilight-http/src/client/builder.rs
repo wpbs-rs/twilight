@@ -15,12 +15,20 @@ use twilight_model::channel::message::AllowedMentions;
 pub struct ClientBuilder {
     pub(crate) default_allowed_mentions: Option<AllowedMentions>,
     pub(crate) proxy: Option<Box<str>>,
-    ratelimiter: Option<RateLimiter>,
+    ratelimiter: Option<RateLimiterBuilder>,
     remember_invalid_token: bool,
     pub(crate) default_headers: Option<HeaderMap>,
     pub(crate) timeout: Duration,
     pub(super) token: Option<Token>,
     pub(crate) use_http: bool,
+}
+
+/// Unique for the [`ClientBuilder`] to prevent it from instantiating a
+/// [`RateLimiter`] before the user calls [`ClientBuilder::build`].
+#[derive(Debug)]
+enum RateLimiterBuilder {
+    Defined(RateLimiter),
+    Undefined,
 }
 
 impl ClientBuilder {
@@ -42,11 +50,16 @@ impl ClientBuilder {
             None
         };
 
+        let ratelimiter = self.ratelimiter.map(|rb| match rb {
+            RateLimiterBuilder::Defined(r) => r,
+            RateLimiterBuilder::Undefined => RateLimiter::default(),
+        });
+
         Client {
             http,
             default_headers: self.default_headers,
             proxy: self.proxy,
-            ratelimiter: self.ratelimiter,
+            ratelimiter,
             timeout: self.timeout,
             token_invalidated,
             token: self.token,
@@ -99,7 +112,7 @@ impl ClientBuilder {
     /// [`ClientBuilder::build`].
     #[allow(clippy::missing_const_for_fn)]
     pub fn ratelimiter(mut self, ratelimiter: Option<RateLimiter>) -> Self {
-        self.ratelimiter = ratelimiter;
+        self.ratelimiter = ratelimiter.map(RateLimiterBuilder::Defined);
 
         self
     }
@@ -156,7 +169,7 @@ impl Default for ClientBuilder {
             default_allowed_mentions: None,
             default_headers: None,
             proxy: None,
-            ratelimiter: (!cfg!(test)).then(RateLimiter::default),
+            ratelimiter: (!cfg!(test)).then(|| RateLimiterBuilder::Undefined),
             remember_invalid_token: true,
             timeout: Duration::from_secs(10),
             token: None,
